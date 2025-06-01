@@ -17,15 +17,16 @@ function cmdline.new()
   return self
 end
 
-function cmdline:enabled()
-  return vim.api.nvim_get_mode().mode == 'c' and vim.tbl_contains({ ':', '@' }, vim.fn.getcmdtype())
-end
-
 ---@param name string
 ---@return boolean?
 function cmdline:is_boolean_option(name)
   local ok, opt = pcall(function() return vim.opt[name]:get() end)
   if ok then return type(opt) == 'boolean' end
+end
+
+function cmdline:enabled()
+  return vim.bo.ft == 'vim'
+    or vim.api.nvim_get_mode().mode == 'c' and vim.tbl_contains({ ':', '@' }, vim.fn.getcmdtype())
 end
 
 function cmdline:get_trigger_characters() return { ' ', '.', '#', '-', '=', '/', ':' } end
@@ -48,6 +49,7 @@ function cmdline:get_completions(context, callback)
   local cmd = (valid_cmd and parsed.cmd) or arguments[1] or ''
 
   local is_help_command = constants.help_commands[cmd] and arg_number > 1
+  local is_cmdline = vim.api.nvim_get_mode().mode == 'c'
 
   local task = async.task
     .empty()
@@ -173,6 +175,19 @@ function cmdline:get_completions(context, callback)
           start_pos = start_pos + #prefix
         end
 
+        -- Adjust start position for Lua expressions entered without space
+        -- `=vim.api` which are valid expressions
+        if is_first_arg and not is_cmdline then
+          local prefix = current_arg_prefix:match('^=([^%s].*)')
+          if prefix then start_pos = start_pos + #prefix end
+        end
+
+        -- Calculate line and column values based on context
+        local line = is_cmdline and 0 or (context.cursor[1] - 1)
+        local insert_end_char = is_cmdline and (vim.fn.getcmdpos() - 1) or context.cursor[2]
+        local replace_end_char =
+          math.min(start_pos + #current_arg, context.bounds.start_col + context.bounds.length - 1)
+
         local item = {
           label = filter_text,
           filterText = filter_text,
@@ -181,15 +196,12 @@ function cmdline:get_completions(context, callback)
           textEdit = {
             newText = new_text,
             insert = {
-              start = { line = 0, character = start_pos },
-              ['end'] = { line = 0, character = vim.fn.getcmdpos() - 1 },
+              start = { line = line, character = start_pos },
+              ['end'] = { line = line, character = insert_end_char },
             },
             replace = {
-              start = { line = 0, character = start_pos },
-              ['end'] = {
-                line = 0,
-                character = math.min(start_pos + #current_arg, context.bounds.start_col + context.bounds.length - 1),
-              },
+              start = { line = line, character = start_pos },
+              ['end'] = { line = line, character = replace_end_char },
             },
           },
           kind = require('blink.cmp.types').CompletionItemKind.Property,
