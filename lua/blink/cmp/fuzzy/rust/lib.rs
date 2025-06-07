@@ -2,6 +2,7 @@ use crate::error::Error;
 use crate::frecency::FrecencyTracker;
 use crate::fuzzy::FuzzyOptions;
 use crate::lsp_item::LspItem;
+use lsp_item::CompletionItemKind;
 use mlua::prelude::*;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
@@ -12,6 +13,7 @@ mod frecency;
 mod fuzzy;
 mod keyword;
 mod lsp_item;
+mod sort;
 
 static REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"[\p{L}_][\p{L}0-9_\\-]{2,}").unwrap());
@@ -109,13 +111,46 @@ pub fn guess_edit_range(
     _lua: &Lua,
     (item, line, cursor_col, match_suffix): (LspItem, mlua::String, usize, bool),
 ) -> LuaResult<(usize, usize)> {
-    // TODO: take the max range from insert_text and filter_text
-    Ok(keyword::guess_keyword_range_from_item(
-        item.insert_text.as_ref().unwrap_or(&item.label),
-        &line.to_string_lossy(),
-        cursor_col,
-        match_suffix,
-    ))
+    let line_str = line.to_string_lossy();
+
+    let keyword_range = keyword::get_keyword_range(&line_str, cursor_col, match_suffix);
+    let label_edit_range = keyword::guess_keyword_range(keyword_range, &item.label, &line_str);
+    let filter_text_edit_range = item
+        .filter_text
+        .as_ref()
+        .map(|filter_text| keyword::guess_keyword_range(keyword_range, filter_text, &line_str))
+        .unwrap_or(label_edit_range);
+    let insert_text_edit_range = item
+        .insert_text
+        .as_ref()
+        .map(|insert_text| keyword::guess_keyword_range(keyword_range, insert_text, &line_str))
+        .unwrap_or(filter_text_edit_range);
+
+    // Prefer the insert text, then filter text, then label ranges for non-snippets
+    if item.kind != CompletionItemKind::Snippet as u32 {
+        return Ok(insert_text_edit_range);
+    }
+
+    // HACK: In the lazydev.nvim case, the label is the whole module like `blink.cmp.fuzzy`
+    // but the `insertText` is just `fuzzy` when you've already typed `blink.cmp.`.
+    // But in the snippets case, the label could be completed unrelated to the insertText so we
+    // should use the label range.
+    //
+    // TODO: What about using the filterText range and ignoring label?
+
+    // Take the max range prioritizing the start index first and the end index second
+    // When comparing tuples (start, end), Rust compares the first element first,
+    // and only if those are equal, it compares the second element
+    Ok([
+        label_edit_range,
+        filter_text_edit_range,
+        insert_text_edit_range,
+    ]
+    .iter()
+    // Transform to (start, -end) to find minimum start and maximum end
+    .min_by_key(|&(start, end)| (start, std::cmp::Reverse(end)))
+    .copied()
+    .unwrap_or((0, 0)))
 }
 
 pub fn get_words(_: &Lua, text: mlua::String) -> LuaResult<Vec<String>> {

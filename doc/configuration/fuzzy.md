@@ -29,7 +29,7 @@ If possible, it's highly recommended to use the Rust implementation of the fuzzy
 
 ### Prebuilt binaries (default on a release tag)
 
-By default, Blink will download a prebuilt binary from the latest release, when you're on a release tag (via `version = '*'` on `lazy.nvim` for example). If you're not on a release tag, you may force a specific version via `fuzzy.prebuilt_binaries.force_version`. See [the latest release](https://github.com/saghen/blink.cmp/releases/latest) for supported systems. See `prebuilt_binaries` section of the [reference configuration](./reference.md#fuzzy) for more options.
+By default, Blink will download a prebuilt binary from the latest release, when you're on a release tag (via `version = '1.*'` on `lazy.nvim` for example). If you're not on a release tag, you may force a specific version via `fuzzy.prebuilt_binaries.force_version`. See [the latest release](https://github.com/saghen/blink.cmp/releases/latest) for supported systems. See `prebuilt_binaries` section of the [reference configuration](./reference.md#fuzzy) for more options.
 
 You may instead install the prebuilt binaries manually by downloading the appropriate binary from the [latest release](https://github.com/saghen/blink.cmp/releases/latest) and placing it at `$data/lazy/blink.cmp/target/release/libblink_cmp_fuzzy.$ext`. Get the `$data` path via `:echo stdpath('data')`. Use `.so` for linux, `.dylib` for mac, and `.dll` for windows. If you're unsure whether you want `-musl` or `-gnu` for linux, you very likely want `-gnu`.
 
@@ -52,4 +52,34 @@ You may also build with nix via `nix run .#build-plugin`.
 
 ## Configuration
 
-See the [fuzzy section of the reference configuration](./reference.md#fuzzy). For recipes, see [the recipes section](../recipes.md#fuzzy).
+See the [fuzzy section of the reference configuration](./reference.md#fuzzy). For recipes, see [the recipes section](../recipes.md#fuzzy-sorting-filtering).
+
+### Sorting
+
+The sorting can be customized by providing a custom function to sort the entries, based on [sorting in Lua](https://www.lua.org/manual/5.1/manual.html#pdf-table.sort), or by using one of the built-in sorts:
+
+- `exact`: Sorts by exact match, case-sensitive
+- `score`: Sorts by the fuzzy matching score
+- `sort_text`: Sorts by the `sortText` field
+  - Generally, this field provides better sorting than `label` as the source/LSP may prioritize items relevant to the current context
+  - If you're writing your own source, use this field to control sort order, instead of requiring users to add a sort function
+- `label`: Sorts by the `label` field, deprioritizing entries with a leading `_`
+- `kind`: Sorts by the numeric `kind` field
+  - Check the order via `:lua vim.print(vim.lsp.protocol.CompletionItemKind)`
+
+```lua
+fuzzy = {
+  sorts = {
+    -- example custom sorting function, ensuring `_` entries are always last (untested, YMMV)
+    function(a, b)
+        if a.label:sub(1, 1) == "_" ~= a.label:sub(1, 1) == "_" then
+            -- return true to sort `a` after `b`, and vice versa
+            return not a.label:sub(1, 1) == "_"
+        end
+        -- nothing returned, fallback to the next sort
+    end,
+    -- default sorts
+    'score',
+    'sort_text',
+}
+```

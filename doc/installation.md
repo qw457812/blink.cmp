@@ -25,7 +25,7 @@ Note: By default, Blink will attempt to use the rust implementation of the fuzzy
   dependencies = { 'rafamadriz/friendly-snippets' },
 
   -- use a release tag to download pre-built binaries
-  version = '*',
+  version = '1.*',
   -- AND/OR build from source, requires nightly: https://rust-lang.github.io/rustup/concepts/channels.html#working-with-nightly-rust
   -- build = 'cargo build --release',
   -- If you use nix, you can build from source using latest nightly rust with:
@@ -54,6 +54,9 @@ Note: By default, Blink will attempt to use the rust implementation of the fuzzy
       nerd_font_variant = 'mono'
     },
 
+    -- (Default) Only show the documentation popup when manually triggered
+    completion = { documentation = { auto_show = false } },
+
     -- Default list of enabled providers defined so that you can extend it
     -- elsewhere in your config, without redefining it, due to `opts_extend`
     sources = {
@@ -71,12 +74,11 @@ Note: By default, Blink will attempt to use the rust implementation of the fuzzy
 }
 ```
 
-::: warning
-On Neovim 0.11+ and Blink.cmp 0.10+ with `vim.lsp.config`, you may skip this step.
-This is still required when using `nvim-lspconfig` until [this issue is completed](https://github.com/neovim/nvim-lspconfig/issues/3494)
-:::
-
 ### LSP Capabilities
+
+::: warning
+On Neovim 0.11+ with `vim.lsp.config`, you may skip this step. See [nvim-lspconfig docs](https://github.com/neovim/nvim-lspconfig?tab=readme-ov-file#vimlspconfig)
+:::
 
 LSP servers and clients communicate which features they support through "capabilities". By default, Neovim supports a subset of the LSP specification. With blink.cmp, Neovim has _more_ capabilities which are communicated to the LSP servers.
 
@@ -85,7 +87,6 @@ Explanation from TJ: https://youtu.be/m8C0Cq9Uv9o?t=1275
 This can vary by config, but in general for nvim-lspconfig:
 
 ```lua
-
 {
   'neovim/nvim-lspconfig',
   dependencies = { 'saghen/blink.cmp' },
@@ -114,6 +115,38 @@ This can vary by config, but in general for nvim-lspconfig:
     lspconfig['lua_ls'].setup({ capabilities = capabilities })
   end
 }
+```
+
+#### Merging LSP capabilities
+
+Blink.cmp's `get_lsp_capabilities` function includes the built-in LSP capabilities by default. To merge with your own capabilities, use the first argument, which acts as an override.
+
+```lua
+local capabilities = {
+  textDocument = {
+    foldingRange = {
+      dynamicRegistration = false,
+      lineFoldingOnly = true
+    }
+  }
+}
+
+capabilities = require('blink.cmp').get_lsp_capabilities(capabilities)
+
+-- or equivalently
+
+local capabilities = vim.lsp.protocol.make_client_capabilities()
+
+capabilities = vim.tbl_deep_extend('force', capabilities, require('blink.cmp').get_lsp_capabilities({}, false))
+
+capabilities = vim.tbl_deep_extend('force', capabilities, {
+  textDocument = {
+    foldingRange = {
+      dynamicRegistration = false,
+      lineFoldingOnly = true
+    }
+  }
+})
 ```
 
 ## `mini.deps`

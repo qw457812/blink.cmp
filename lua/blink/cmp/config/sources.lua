@@ -7,27 +7,30 @@
 ---     local node = vim.treesitter.get_node()
 ---     if vim.bo.filetype == 'lua' then
 ---       return { 'lsp', 'path' }
----     elseif node and vim.tbl_contains({ 'comment', 'line_comment', 'block_comment' }), node:type())
+---     elseif node and vim.tbl_contains({ 'comment', 'line_comment', 'block_comment' }, node:type()) then
 ---       return { 'buffer' }
 ---     else
 ---       return { 'lsp', 'path', 'snippets', 'buffer' }
 ---     end
 ---   end
 --- ```
---- @field default string[] | fun(): string[]
---- @field per_filetype table<string, string[] | fun(): string[]>
+--- @field default blink.cmp.SourceList
+--- @field per_filetype table<string, blink.cmp.SourceListPerFiletype>
 ---
 --- @field transform_items fun(ctx: blink.cmp.Context, items: blink.cmp.CompletionItem[]): blink.cmp.CompletionItem[] Function to transform the items before they're returned
 --- @field min_keyword_length number | fun(ctx: blink.cmp.Context): number Minimum number of characters in the keyword to trigger
 ---
 --- @field providers table<string, blink.cmp.SourceProviderConfig>
 
+--- @alias blink.cmp.SourceList string[] | fun(): string[]
+--- @alias blink.cmp.SourceListPerFiletype { inherit_defaults?: boolean, [number]: string } | fun(): ({ inherit_defaults?: boolean, [number]: string })
+
 --- @class blink.cmp.SourceProviderConfig
 --- @field module string
 --- @field name? string
 --- @field enabled? boolean | fun(): boolean Whether or not to enable the provider
 --- @field opts? table
---- @field async? boolean | fun(ctx: blink.cmp.Context): boolean Whether blink should wait for the source to return before showing the completions
+--- @field async? boolean | fun(ctx: blink.cmp.Context): boolean Whether we should show the completions before this provider returns, without waiting for it
 --- @field timeout_ms? number | fun(ctx: blink.cmp.Context): number How long to wait for the provider to return before showing completions and treating it as asynchronous
 --- @field transform_items? fun(ctx: blink.cmp.Context, items: blink.cmp.CompletionItem[]): blink.cmp.CompletionItem[] Function to transform the items before they're returned
 --- @field should_show_items? boolean | fun(ctx: blink.cmp.Context, items: blink.cmp.CompletionItem[]): boolean Whether or not to show the items
@@ -68,7 +71,7 @@ local sources = {
       },
       snippets = {
         module = 'blink.cmp.sources.snippets',
-        score_offset = -3,
+        score_offset = -1, -- receives a -3 from top level snippets.score_offset
       },
       buffer = {
         module = 'blink.cmp.sources.buffer',
@@ -76,6 +79,12 @@ local sources = {
       },
       cmdline = {
         module = 'blink.cmp.sources.cmdline',
+        -- Disable shell commands on windows, since they cause neovim to hang
+        enabled = function()
+          return vim.fn.has('win32') == 0
+            or vim.fn.getcmdtype() ~= ':'
+            or not vim.fn.getcmdline():match("^[%%0-9,'<>%-]*!")
+        end,
       },
       omni = {
         module = 'blink.cmp.sources.complete_func',

@@ -7,10 +7,12 @@
 --- @field enabled boolean Show the signature help automatically
 --- @field show_on_keyword boolean Show the signature help window after typing any of alphanumerics, `-` or `_`
 --- @field blocked_trigger_characters string[]
---- @field blocked_retrigger_characters string[]
+--- @field blocked_retrigger_characters string[] When the signature help window has already been shown, don't update after typing these characters
 --- @field show_on_trigger_character boolean Show the signature help window after typing a trigger character
 --- @field show_on_insert boolean Show the signature help window when entering insert mode
 --- @field show_on_insert_on_trigger_character boolean Show the signature help window when the cursor comes after a trigger character when entering insert mode
+--- @field show_on_accept boolean Show the signature help window after accepting a completion item
+--- @field show_on_accept_on_trigger_character boolean Show the signature help window when the cursor comes after a trigger character after accepting a completion item (i.e. func(|) where "(" is a trigger character)
 
 --- @class (exact) blink.cmp.SignatureWindowConfig
 --- @field min_width number
@@ -37,12 +39,14 @@ local signature = {
       show_on_trigger_character = true,
       show_on_insert = false,
       show_on_insert_on_trigger_character = true,
+      show_on_accept = false,
+      show_on_accept_on_trigger_character = true,
     },
     window = {
       min_width = 1,
       max_width = 100,
       max_height = 10,
-      border = 'padded',
+      border = nil,
       winblend = 0,
       winhighlight = 'Normal:BlinkCmpSignatureHelp,FloatBorder:BlinkCmpSignatureHelpBorder',
       scrollbar = false,
@@ -67,12 +71,14 @@ function signature.validate(config)
     show_on_trigger_character = { config.trigger.show_on_trigger_character, 'boolean' },
     show_on_insert = { config.trigger.show_on_insert, 'boolean' },
     show_on_insert_on_trigger_character = { config.trigger.show_on_insert_on_trigger_character, 'boolean' },
+    show_on_accept = { config.trigger.show_on_accept, 'boolean' },
+    show_on_accept_on_trigger_character = { config.trigger.show_on_accept_on_trigger_character, 'boolean' },
   }, config.trigger)
   validate('signature.window', {
     min_width = { config.window.min_width, 'number' },
     max_width = { config.window.max_width, 'number' },
     max_height = { config.window.max_height, 'number' },
-    border = { config.window.border, { 'string', 'table' } },
+    border = { config.window.border, { 'string', 'table' }, true },
     winblend = { config.window.winblend, 'number' },
     winhighlight = { config.window.winhighlight, 'string' },
     scrollbar = { config.window.scrollbar, 'boolean' },

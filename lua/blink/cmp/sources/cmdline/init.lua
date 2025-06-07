@@ -17,7 +17,9 @@ function cmdline.new()
   return self
 end
 
-function cmdline:enabled() return vim.api.nvim_get_mode().mode == 'c' end
+function cmdline:enabled()
+  return vim.api.nvim_get_mode().mode == 'c' and vim.tbl_contains({ ':', '@' }, vim.fn.getcmdtype())
+end
 
 ---@param name string
 ---@return boolean?
@@ -45,13 +47,13 @@ function cmdline:get_completions(context, callback)
   local valid_cmd, parsed = pcall(vim.api.nvim_parse_cmd, context.line, {})
   local cmd = (valid_cmd and parsed.cmd) or arguments[1] or ''
 
+  local is_help_command = constants.help_commands[cmd] and arg_number > 1
+
   local task = async.task
     .empty()
     :map(function()
       -- Special case for help where we read all the tags ourselves
-      if vim.tbl_contains(constants.help_commands, cmd) and arg_number > 1 then
-        return require('blink.cmp.sources.cmdline.help').get_completions(current_arg_prefix)
-      end
+      if is_help_command then return require('blink.cmp.sources.cmdline.help').get_completions(current_arg_prefix) end
 
       local completions = {}
       local completion_args = vim.split(vim.fn.getcmdcompltype(), ',', { plain = true })
@@ -69,19 +71,29 @@ function cmdline:get_completions(context, callback)
           and not vim.startswith(completion_func:lower(), 'v:lua')
           and not vim.startswith(completion_func:lower(), '<sid>')
         then
-          completions = vim.fn.call(completion_func, { current_arg_prefix, vim.fn.getcmdline(), vim.fn.getcmdpos() })
-          -- `custom,` type returns a string, delimited by newlines
-          if type(completions) == 'string' then completions = vim.split(completions, '\n') end
+          local success, fn_completions =
+            pcall(vim.fn.call, completion_func, { current_arg_prefix, vim.fn.getcmdline(), vim.fn.getcmdpos() })
+
+          if success then
+            if type(fn_completions) == 'table' then
+              completions = fn_completions
+            -- `custom,` type returns a string, delimited by newlines
+            elseif type(fn_completions) == 'string' then
+              completions = vim.split(fn_completions, '\n')
+            end
+          end
 
         -- Regular input completions, use the type defined by the input
         else
           local query = (text_before_argument .. current_arg_prefix):gsub([[\\]], [[\\\\]])
           -- TODO: handle `custom` type
-          local type = not vim.startswith(completion_type, 'custom') and vim.fn.getcmdcompltype() or 'cmdline'
-          if type == '' then
-            completions = {}
-          else
-            completions = vim.fn.getcompletion(query, type)
+          local compl_type = not vim.startswith(completion_type, 'custom') and vim.fn.getcmdcompltype() or 'cmdline'
+          if compl_type ~= '' then
+            -- "file" completions uniquely expect only the current file path
+            query = compl_type == 'file' and current_arg_prefix or query
+
+            completions = vim.fn.getcompletion(query, compl_type)
+            if type(completions) ~= 'table' then completions = {} end
           end
         end
 
@@ -92,7 +104,7 @@ function cmdline:get_completions(context, callback)
       end
 
       -- Special case for files, escape special characters
-      if vim.tbl_contains(constants.file_commands, cmd) then
+      if constants.file_commands[cmd] then
         completions = vim.tbl_map(function(completion) return vim.fn.fnameescape(completion) end, completions)
       end
 
@@ -127,7 +139,7 @@ function cmdline:get_completions(context, callback)
         or completion_type == 'file_in_path'
         or completion_type == 'buffer'
       local is_first_arg = arg_number == 1
-      local is_lua_expr = completion_type == 'lua' and context.line:sub(1, 1) == '='
+      local is_lua_expr = completion_type == 'lua' and cmd == '='
 
       local items = {}
       for _, completion in ipairs(completions) do
@@ -149,12 +161,15 @@ function cmdline:get_completions(context, callback)
         local start_pos = #text_before_argument
 
         -- exclude range on the first argument
-        if is_first_arg then
+        if is_first_arg and not is_lua_expr then
           local prefix = longest_match(current_arg, {
             "^%s*'<%s*,%s*'>%s*", -- Visual range, e.g., '<,>'
             '^%s*%d+%s*,%s*%d+%s*', -- Numeric range, e.g., 3,5
             '^%s*[%p]+%s*', -- One or more punctuation characters
           })
+          start_pos = start_pos + #prefix
+        elseif is_first_arg and is_lua_expr then
+          local prefix = current_arg:match('^=%s*')
           start_pos = start_pos + #prefix
         end
 
@@ -193,7 +208,7 @@ function cmdline:get_completions(context, callback)
       end
 
       callback({
-        is_incomplete_backward = true,
+        is_incomplete_backward = not is_help_command,
         is_incomplete_forward = false,
         items = items,
       })

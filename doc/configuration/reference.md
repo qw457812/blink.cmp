@@ -6,6 +6,12 @@ Do not copy the default configuration! Only include options you want to change i
 
 ```lua
 -- Enables keymaps, completions and signature help when true (doesn't apply to cmdline or term)
+--
+-- If the function returns 'force', the default conditions for disabling the plugin will be ignored
+-- Default conditions: (vim.bo.buftype ~= 'prompt' and vim.b.completion ~= false)
+-- Note that the default conditions are ignored when `vim.b.completion` is explicitly set to `true`
+--
+-- Exceptions: vim.bo.filetype == 'dap-repl'
 enabled = function() return true end,
 
 -- See the "keymap" page for more information
@@ -48,11 +54,26 @@ completion.trigger = {
   -- When false, will not show the completion window automatically when in a snippet
   show_in_snippet = true,
 
+  -- When true, will show completion window after backspacing
+  show_on_backspace = false,
+
+  -- When true, will show completion window after backspacing into a keyword
+  show_on_backspace_in_keyword = false,
+
+  -- When true, will show the completion window after accepting a completion and then backspacing into a keyword
+  show_on_backspace_after_accept = true,
+
+  -- When true, will show the completion window after entering insert mode and backspacing into keyword
+  show_on_backspace_after_insert_enter = true,
+
   -- When true, will show the completion window after typing any of alphanumerics, `-` or `_`
   show_on_keyword = true,
 
   -- When true, will show the completion window after typing a trigger character
   show_on_trigger_character = true,
+
+  -- When true, will show the completion window after entering insert mode
+  show_on_insert = false,
   
   -- LSPs can indicate when to show the completion window via trigger characters
   -- however, some LSPs (i.e. tsserver) return characters that would essentially
@@ -93,7 +114,7 @@ completion.list = {
     -- preselect = function(ctx) return vim.bo.filetype ~= 'markdown' end,
 
     -- When `true`, inserts the completion item automatically when selecting it
-    -- You may want to bind a key to the `cancel` command (default <C-e>) when using this option, 
+    -- You may want to bind a key to the `cancel` command (default <C-e>) when using this option,
     -- which will both undo the selection and hide the completion menu
     auto_insert = true,
     -- auto_insert = function(ctx) return vim.bo.filetype ~= 'markdown' end
@@ -127,6 +148,7 @@ completion.accept = {
     -- Default brackets to use for unknown languages
     default_brackets = { '(', ')' },
     -- Overrides the default blocked filetypes
+    -- See: https://github.com/Saghen/blink.cmp/blob/main/lua/blink/cmp/completion/brackets/config.lua#L5-L9
     override_brackets_for_filetypes = {},
     -- Synchronously use the kind of the item to determine if brackets should be added
     kind_resolution = {
@@ -151,7 +173,7 @@ completion.menu = {
   enabled = true,
   min_width = 15,
   max_height = 10,
-  border = 'none',
+  border = nil, -- Defaults to `vim.o.winborder` on nvim 0.11+
   winblend = 0,
   winhighlight = 'Normal:BlinkCmpMenu,FloatBorder:BlinkCmpMenuBorder,CursorLine:BlinkCmpMenuSelection,Search:None',
   -- Keep the cursor X lines away from the top/bottom of the window
@@ -188,6 +210,8 @@ completion.menu.draw = {
   padding = 1,
   -- Gap between columns
   gap = 1,
+  -- Priority of the cursorline highlight, setting this to 0 will render it below other highlights
+  cursorline_priority = 10000,
   -- Use treesitter to highlight the label text for the given list of sources
   treesitter = {},
   -- treesitter = { 'lsp' }
@@ -204,7 +228,8 @@ completion.menu.draw = {
     kind_icon = {
       ellipsis = false,
       text = function(ctx) return ctx.kind_icon .. ctx.icon_gap end,
-      highlight = function(ctx) return ctx.kind_hl end,
+      -- Set the highlight priority to 20000 to beat the cursorline's default priority of 10000
+      highlight = function(ctx) return { { group = ctx.kind_hl, priority = 20000 } } end,
     },
 
     kind = {
@@ -275,7 +300,7 @@ completion.documentation = {
     min_width = 10,
     max_width = 80,
     max_height = 20,
-    border = 'padded',
+    border = nil, -- Defaults to `vim.o.winborder` on nvim 0.11+ or 'padded' when not defined/<=0.10
     winblend = 0,
     winhighlight = 'Normal:BlinkCmpDoc,FloatBorder:BlinkCmpDocBorder,EndOfBuffer:BlinkCmpDoc',
     -- Note that the gutter will be disabled when border ~= 'none'
@@ -332,7 +357,7 @@ signature = {
     min_width = 1,
     max_width = 100,
     max_height = 10,
-    border = 'padded',
+    border = nil, -- Defaults to `vim.o.winborder` on nvim 0.11+ or 'padded' when not defined/<=0.10
     winblend = 0,
     winhighlight = 'Normal:BlinkCmpSignatureHelp,FloatBorder:BlinkCmpSignatureHelpBorder',
     scrollbar = false, -- Note that the gutter will be disabled when border ~= 'none'
@@ -416,7 +441,15 @@ fuzzy = {
     force_system_triple = nil,
 
     -- Extra arguments that will be passed to curl like { 'curl', ..extra_curl_args, ..built_in_args }
-    extra_curl_args = {}
+    extra_curl_args = {},
+
+    proxy = {
+        -- When downloading a prebuilt binary, use the HTTPS_PROXY environment variable
+        from_env = true,
+
+        -- When downloading a prebuilt binary, use this proxy URL. This will ignore the HTTPS_PROXY environment variable
+        url = nil,
+    },
   },
 }
 ```
@@ -429,10 +462,11 @@ See the [mode specific configurations](#mode-specific) for setting sources for `
 sources = {
   -- Static list of providers to enable, or a function to dynamically enable/disable providers based on the context
   default = { 'lsp', 'path', 'snippets', 'buffer' },
-  
+
   -- You may also define providers per filetype
   per_filetype = {
-    -- lua = { 'lsp', 'path' },
+    -- optionally inherit from the `default` sources
+    -- lua = { inherit_defaults = true, 'lsp', 'path' },
   },
 
   -- Function to use when transforming the items before they're returned for all providers
@@ -453,6 +487,8 @@ sources.providers = {
   lsp = {
     name = 'LSP',
     module = 'blink.cmp.sources.lsp',
+    -- You may enable the buffer source, when LSP is available, by setting this to `{}`
+    -- You may want to set the score_offset of the buffer source to a lower value, such as -5 in this case
     fallbacks = { 'buffer' },
     -- Filter text items from the LSP provider, since we have the buffer provider for that
     transform_items = function(_, items)
@@ -468,7 +504,7 @@ sources.providers = {
     --- See the type definitions for more information
     name = nil, -- Defaults to the id ("lsp" in this case) capitalized when not set
     enabled = true, -- Whether or not to enable the provider
-    async = false, -- Whether we should wait for the provider to return before showing the completions
+    async = false, -- Whether we should show the completions before this provider returns, without waiting for it
     timeout_ms = 2000, -- How long to wait for the provider to return before showing completions and treating it as asynchronous
     transform_items = nil, -- Function to transform the items before they're returned
     should_show_items = true, -- Whether or not to show the items
@@ -490,11 +526,14 @@ sources.providers = {
       label_trailing_slash = true,
       get_cwd = function(context) return vim.fn.expand(('#%d:p:h'):format(context.bufnr)) end,
       show_hidden_files_by_default = false,
+      -- Treat `/path` as starting from the current working directory (cwd) instead of the root of your filesystem
+      ignore_root_slash = false,
     }
   },
 
   snippets = {
     module = 'blink.cmp.sources.snippets',
+    score_offset = -1, -- receives a -3 from top level snippets.score_offset
 
     -- For `snippets.preset == 'default'`
     opts = {
@@ -505,7 +544,7 @@ sources.providers = {
       ignored_filetypes = {},
       get_filetype = function(context)
         return vim.bo.filetype
-      end
+      end,
       -- Set to '+' to use the system clipboard, or '"' to use the unnamed register
       clipboard_register = nil,
     }
@@ -516,6 +555,8 @@ sources.providers = {
       use_show_condition = true,
       -- Whether to show autosnippets in the completion list
       show_autosnippets = true,
+      -- Whether to prefer docTrig placeholders over trig when expanding regTrig snippets
+      prefer_doc_trig = false,
     }
 
     -- For `snippets.preset == 'mini_snippets'`
@@ -527,6 +568,7 @@ sources.providers = {
 
   buffer = {
     module = 'blink.cmp.sources.buffer',
+    score_offset = -3,
     opts = {
       -- default to all visible buffers
       get_bufnrs = function()
@@ -536,11 +578,29 @@ sources.providers = {
           :filter(function(buf) return vim.bo[buf].buftype ~= 'nofile' end)
           :totable()
       end,
+      -- buffers when searching with `/` or `?`
+      get_search_bufnrs = function() return { vim.api.nvim_get_current_buf() } end,
+      -- Maximum total number of characters (across all selected buffers) for which buffer completion runs synchronously. Above this, asynchronous processing is used.
+      max_sync_buffer_size = 20000,
+      -- Maximum total number of characters (across all selected buffers) for which buffer completion runs asynchronously. Above this, buffer completions are skipped to avoid performance issues.
+      max_async_buffer_size = 500000,
+      -- Whether to enable buffer source in substitute (:s) and global (:g) commands.
+      -- Note: Enabling this option will temporarily disable Neovim's 'inccommand' feature
+      -- while editing Ex commands, due to a known redraw issue (see neovim/neovim#9783).
+      -- This means you will lose live substitution previews when using :s, :smagic, or :snomagic
+      -- while buffer completions are active.
+      enable_in_ex_commands = false,
     }
   },
 
   cmdline = {
     module = 'blink.cmp.sources.cmdline',
+    -- Disable shell commands on windows, since they cause neovim to hang
+    enabled = function()
+      return vim.fn.has('win32') == 0
+        or vim.fn.getcmdtype() ~= ':'
+        or not vim.fn.getcmdline():match("^[%%0-9,'<>%-]*!")
+    end,
   },
 
   omni = {
@@ -612,14 +672,22 @@ cmdline = {
   enabled = true,
   -- use 'inherit' to inherit mappings from top level `keymap` config
   keymap = { preset = 'cmdline' },
-  sources = function()
-    local type = vim.fn.getcmdtype()
-    -- Search forward and backward
-    if type == '/' or type == '?' then return { 'buffer' } end
-    -- Commands
-    if type == ':' or type == '@' then return { 'cmdline' } end
-    return {}
-  end,
+  sources = { 'buffer', 'cmdline' },
+
+  -- OR explicitly configure per cmd type
+  -- This ends up being equivalent to above since the sources disable themselves automatically
+  -- when not available. You may override their `enabled` functions via
+  -- `sources.providers.cmdline.override.enabled = function() return your_logic end`
+
+  -- sources = function()
+  --   local type = vim.fn.getcmdtype()
+  --   -- Search forward and backward
+  --   if type == '/' or type == '?' then return { 'buffer' } end
+  --   -- Commands
+  --   if type == ':' or type == '@' then return { 'cmdline', 'buffer' } end
+  --   return {}
+  -- end,
+
   completion = {
     trigger = {
       show_on_blocked_trigger_characters = {},
@@ -636,7 +704,7 @@ cmdline = {
     -- Whether to automatically show the window when new completion items are available
     menu = { auto_show = false },
     -- Displays a preview of the selected item on the current line
-    ghost_text = { enabled = true }
+    ghost_text = { enabled = true },
   }
 }
 ```
@@ -644,7 +712,7 @@ cmdline = {
 ### Terminal
 
 ::: warning
-Terminal completions are nightly only! Known bugs in v0.10
+Terminal completions are 0.11+ only! Known bugs in v0.10
 :::
 
 ```lua
@@ -669,6 +737,7 @@ term = {
     -- Whether to automatically show the window when new completion items are available
     menu = { auto_show = nil },
     -- Displays a preview of the selected item on the current line
-    ghost_text = { enabled = nil }
+    ghost_text = { enabled = nil },
   }
 }
+```
